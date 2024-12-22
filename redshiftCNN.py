@@ -19,6 +19,10 @@ np.random.seed(RANDOM_SEED)
 
 DATA_DIR = "datasets/Galaxy10_DECals.h5"
 
+# Check if GPU is available
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+
 # Define a simple CNN for regression
 class RedshiftCNN(nn.Module):
     def __init__(self):
@@ -83,7 +87,6 @@ if __name__ == "__main__":
             print(images.shape)
             print(labels.shape)
 
-
             # Split the data into training, validation, and testing sets
             images_train, images_temp, labels_train, labels_temp = train_test_split(
                 images, labels, test_size=0.3, random_state=RANDOM_SEED
@@ -93,7 +96,6 @@ if __name__ == "__main__":
             )
 
             print(labels_train.shape, labels_val.shape, labels_test.shape)
-
 
         mean = np.mean(images, axis=(0, 1, 2)) / 255.0  # Normalize by 255
         std = np.std(images, axis=(0, 1, 2)) / 255.0
@@ -117,7 +119,7 @@ if __name__ == "__main__":
 
         # Initialize model, loss, and optimizer
         model = RedshiftCNN()
-        model.to(torch.device('cpu'))
+        model.to(device)
 
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -129,13 +131,13 @@ if __name__ == "__main__":
             model.train()
             running_loss = 0.0
             for inputs, targets in train_loader:
-                inputs, targets = inputs.to(torch.device('cpu')), targets.to(torch.device('cpu'))
+                inputs, targets = inputs.to(device), targets.to(device)
 
                 optimizer.zero_grad()
                 outputs = model(inputs)
                 outputs = outputs.view(-1)
                 targets = targets.view(-1)
-                loss = criterion(outputs.squeeze(), targets)
+                loss = criterion(outputs, targets)
                 loss.backward()
                 optimizer.step()
 
@@ -148,10 +150,9 @@ if __name__ == "__main__":
             val_loss = 0.0
             with torch.no_grad():
                 for inputs, targets in val_loader:
-                    inputs, targets = inputs.to(torch.device('cpu')), targets.to(torch.device('cpu'))
+                    inputs, targets = inputs.to(device), targets.to(device)
                     outputs = model(inputs)
-                    loss = criterion(outputs.squeeze(), targets)
-                    val_loss += loss.item() * inputs.size(0)
+                    val_loss += criterion(outputs.view(-1), targets.view(-1)).item() * inputs.size(0)
 
             val_loss = val_loss / len(val_dataset)
             print(f"Epoch {epoch+1}/{epochs}, Training Loss: {epoch_loss:.6f}, Validation Loss: {val_loss:.6f}")
@@ -166,18 +167,18 @@ if __name__ == "__main__":
         true_labels = []
         with torch.no_grad():
             for inputs, targets in test_loader:
-                inputs = inputs.to(torch.device('cpu'))
+                inputs = inputs.to(device)
+                targets = targets.to(device)
                 outputs = model(inputs)       
                 outputs = outputs.view(-1)
                 predictions.extend(outputs.tolist())
-                true_labels.extend(targets.tolist())
+                true_labels.extend(targets.view(-1).tolist())
 
         r2 = r2_score(true_labels, predictions)
         print(f"R-squared score on test set: {r2:.4f}")
 
         return training_time, r2
 
-    
     # Run for each class of galaxy individually
     stats = []
 
@@ -196,7 +197,3 @@ if __name__ == "__main__":
     plt.title("R-squared score")
     plt.savefig(f"images/redshiftCNN/scores.png")
     plt.clf()
-    
-
-
-
