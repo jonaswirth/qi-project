@@ -10,9 +10,14 @@ from PIL import Image
 import h5py
 import os
 import time
+import matplotlib.pyplot as plt
+
+RANDOM_SEED = 42
+
+torch.manual_seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
 
 DATA_DIR = "datasets/Galaxy10_DECals.h5"
-NUM_SAMPLES = 500
 
 # Define a simple CNN for regression
 class RedshiftCNN(nn.Module):
@@ -29,6 +34,7 @@ class RedshiftCNN(nn.Module):
         self.fc_layers = nn.Sequential(
             nn.Linear(64 * 36 * 36, 128),  # Assuming input size is (144, 144, 3)
             nn.ReLU(),
+            nn.Dropout(p=0.2),
             nn.Linear(128, 1)  # Single output for regression
         )
 
@@ -56,80 +62,141 @@ class GalaxyDataset(Dataset):
         return image, torch.tensor(label, dtype=torch.float32)
 
 if __name__ == "__main__":
-    # Load dataset
-    with h5py.File(DATA_DIR, 'r') as f:
-        images = np.array(f['images'][:NUM_SAMPLES])
-        labels = np.array(f['redshift'][:NUM_SAMPLES])
+    def train_and_evaluate(class_index):
+        # Load dataset
+        with h5py.File(DATA_DIR, 'r') as f:
+            images = np.array(f['images'])
+            classes = np.array(f['ans'])
+            labels = np.array(f['redshift'])
 
-        # Filter to data where redshift is known
-        valid_indices = ~np.isnan(labels)
-        images = images[valid_indices]
-        labels = labels[valid_indices]
+            # Filter to one type of galaxy
+            class_indeces = np.where(classes == class_index)
+            images = images[class_indeces]
+            labels = labels[class_indeces]
+             
+            # Filter to data where redshift is known
+            valid_indices = ~np.isnan(labels)
+            images = images[valid_indices]
+            labels = labels[valid_indices]
 
-        print(f"{labels.shape[0]} valid samples loaded")
+            print(f"{labels.shape[0]} valid samples loaded")
+            print(images.shape)
+            print(labels.shape)
 
-        # Split the data into training and testing sets
-        images_train, images_test, labels_train, labels_test = train_test_split(
-        images, labels, test_size=0.2, random_state=42
-        )
 
-    mean = np.mean(images, axis=(0, 1, 2)) / 255.0  # Normalize by 255
-    std = np.std(images, axis=(0, 1, 2)) / 255.0
+            # Split the data into training, validation, and testing sets
+            images_train, images_temp, labels_train, labels_temp = train_test_split(
+                images, labels, test_size=0.3, random_state=RANDOM_SEED
+            )
+            images_val, images_test, labels_val, labels_test = train_test_split(
+                images_temp, labels_temp, test_size=0.5, random_state=RANDOM_SEED
+            )
 
-    # Preprocessing and transforms
-    transform = transforms.Compose([
-        transforms.Resize((144, 144)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=mean.tolist(), std=std.tolist())
-    ])
+            print(labels_train.shape, labels_val.shape, labels_test.shape)
 
-    # Create datasets for training and testing
-    train_dataset = GalaxyDataset(images_train, labels_train, transform=transform)
-    test_dataset = GalaxyDataset(images_test, labels_test, transform=transform)
 
-    # Create dataloaders for training and testing
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        mean = np.mean(images, axis=(0, 1, 2)) / 255.0  # Normalize by 255
+        std = np.std(images, axis=(0, 1, 2)) / 255.0
 
-    # Initialize model, loss, and optimizer
-    model = RedshiftCNN()
-    model.to(torch.device('cpu'))
+        # Preprocessing and transforms
+        transform = transforms.Compose([
+            transforms.Resize((144, 144)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean.tolist(), std=std.tolist())
+        ])
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+        # Create datasets for training, validation, and testing
+        train_dataset = GalaxyDataset(images_train, labels_train, transform=transform)
+        val_dataset = GalaxyDataset(images_val, labels_val, transform=transform)
+        test_dataset = GalaxyDataset(images_test, labels_test, transform=transform)
 
-    # Training loop
-    start = time.time()
-    epochs = 30
-    for epoch in range(epochs):
-        model.train()
-        running_loss = 0.0
-        for inputs, targets in train_loader:
-            inputs, targets = inputs.to(torch.device('cpu')), targets.to(torch.device('cpu'))
+        # Create dataloaders for training, validation, and testing
+        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs.squeeze(), targets)
-            loss.backward()
-            optimizer.step()
+        # Initialize model, loss, and optimizer
+        model = RedshiftCNN()
+        model.to(torch.device('cpu'))
 
-            running_loss += loss.item() * inputs.size(0)
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-        epoch_loss = running_loss / len(train_dataset)
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss:.4f}")
+        # Training loop
+        start = time.time()
+        epochs = 30
+        for epoch in range(epochs):
+            model.train()
+            running_loss = 0.0
+            for inputs, targets in train_loader:
+                inputs, targets = inputs.to(torch.device('cpu')), targets.to(torch.device('cpu'))
 
-    end = time.time()
-    print(f"Training took {end - start} seconds")
-    # Evaluation on the test set
-    model.eval()
-    predictions = []
-    true_labels = []
-    with torch.no_grad():
-        for inputs, targets in test_loader:
-            inputs = inputs.to(torch.device('cpu'))
-            outputs = model(inputs)
-            predictions.extend(outputs.squeeze().tolist())
-            true_labels.extend(targets.tolist())
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                outputs = outputs.view(-1)
+                targets = targets.view(-1)
+                loss = criterion(outputs.squeeze(), targets)
+                loss.backward()
+                optimizer.step()
 
-    r2 = r2_score(true_labels, predictions)
-    print(f"R-squared score on test set: {r2:.4f}")
+                running_loss += loss.item() * inputs.size(0)
+
+            epoch_loss = running_loss / len(train_dataset)
+
+            # Validation step
+            model.eval()
+            val_loss = 0.0
+            with torch.no_grad():
+                for inputs, targets in val_loader:
+                    inputs, targets = inputs.to(torch.device('cpu')), targets.to(torch.device('cpu'))
+                    outputs = model(inputs)
+                    loss = criterion(outputs.squeeze(), targets)
+                    val_loss += loss.item() * inputs.size(0)
+
+            val_loss = val_loss / len(val_dataset)
+            print(f"Epoch {epoch+1}/{epochs}, Training Loss: {epoch_loss:.6f}, Validation Loss: {val_loss:.6f}")
+
+        end = time.time()
+        training_time = end - start
+        print(f"Training took {training_time} seconds")
+
+        # Evaluation on the test set
+        model.eval()
+        predictions = []
+        true_labels = []
+        with torch.no_grad():
+            for inputs, targets in test_loader:
+                inputs = inputs.to(torch.device('cpu'))
+                outputs = model(inputs)       
+                outputs = outputs.view(-1)
+                predictions.extend(outputs.tolist())
+                true_labels.extend(targets.tolist())
+
+        r2 = r2_score(true_labels, predictions)
+        print(f"R-squared score on test set: {r2:.4f}")
+
+        return training_time, r2
+
+    
+    # Run for each class of galaxy individually
+    stats = []
+
+    for n in range(0, 10):
+        training_time, r2 = train_and_evaluate(n)
+        stats.append([n, training_time, r2])
+    
+    stats = np.array(stats)
+
+    plt.plot(stats[:,0], stats[:,1])
+    plt.title("Training time")
+    plt.savefig(f"images/redshiftCNN/training_time.png")
+    plt.clf()
+
+    plt.plot(stats[:,0], stats[:,2])
+    plt.title("R-squared score")
+    plt.savefig(f"images/redshiftCNN/scores.png")
+    plt.clf()
+    
+
+
+

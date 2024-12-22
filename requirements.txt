@@ -5,3 +5,4 @@ numpy
 pillow
 joblib
 h5py
+matplotlib
