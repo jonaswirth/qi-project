@@ -6,3 +6,6 @@ pillow
 joblib
 h5py
 matplotlib
+qiskit
+qiskit_algorithms
+qiskit_machine_learning
