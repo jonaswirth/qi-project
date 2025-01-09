@@ -66,6 +66,21 @@ class SpectraEncoder(nn.Module):
 
     def forward(self, x):
         return self.fc(x)
+    
+# Contrastive loss to align the embeddings of image and spectrum
+class ContrastiveLoss(nn.Module):
+    def __init__(self, margin=1.0):
+        super(ContrastiveLoss, self).__init__()
+        self.margin = margin
+
+    def forward(self, embedding1, embedding2, label):
+        # Distance between embeddings
+        distance = torch.norm(embedding1 - embedding2, dim=1)
+        # Loss for positive pairs
+        positive_loss = (1 - label) * torch.pow(distance, 2)
+        # Loss for negative pairs
+        negative_loss = label * torch.pow(torch.clamp(self.margin - distance, min=0.0), 2)
+        return torch.mean(positive_loss + negative_loss)
 
 # Load dataset
 def load_dataset(filepath, num_samples=500):
@@ -104,6 +119,10 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
 
     # Training loop
     epochs = 20
+    # Initialize contrastive loss
+    contrastive_loss_fn = ContrastiveLoss(margin=1.0)
+
+    # Training loop
     for epoch in range(epochs):
         img_encoder.train()
         spec_encoder.train()
@@ -111,16 +130,32 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
 
         for img, spec, redshift in train_loader:
             optimizer.zero_grad()
-            img_embedding = img_encoder(img.permute(0, 3, 1, 2))  # Rearrange channels for Conv2D
-            spec_embedding = spec_encoder(spec)
+
+            # Forward pass
+            img_embedding = img_encoder(img.permute(0, 3, 1, 2))  # Image embedding
+            spec_embedding = spec_encoder(spec)  # Spectrum embedding
+
+            # Create labels for contrastive loss (1 for different galaxies, 0 for same galaxy)
+            labels = torch.zeros(img_embedding.size(0), dtype=torch.float32).to(img.device)
+
+            # Contrastive loss
+            loss_contrastive = contrastive_loss_fn(img_embedding, spec_embedding, labels)
+
+            # Regression loss
             combined_embedding = (img_embedding + spec_embedding) / 2
-            loss = criterion(combined_embedding.mean(dim=1), redshift)
+            #loss_regression = criterion(combined_embedding.mean(dim=1), redshift)
+
+            # Total loss
+            #loss = loss_contrastive + loss_regression
+            loss = loss_contrastive
             loss.backward()
             optimizer.step()
+
             epoch_loss += loss.item()
 
         epoch_loss /= len(train_loader)
         print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss:.6f}")
+
 
     # Extract embeddings for kNN
     img_encoder.eval()
