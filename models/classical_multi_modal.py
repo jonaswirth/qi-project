@@ -110,9 +110,13 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
+    # Select device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     # Define encoders
-    img_encoder = ImageEncoder(embedding_size).train()
-    spec_encoder = SpectraEncoder(input_size=spectra.shape[1], embedding_size=embedding_size).train()
+    img_encoder = ImageEncoder(embedding_size).to(device).train()
+    spec_encoder = SpectraEncoder(input_size=spectra.shape[1], embedding_size=embedding_size).to(device).train()
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(list(img_encoder.parameters()) + list(spec_encoder.parameters()), lr=0.001)
@@ -129,6 +133,8 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
         epoch_loss = 0.0
 
         for img, spec, redshift in train_loader:
+            img, spec, redshift = img.to(device), spec.to(device), redshift.to(device)
+
             optimizer.zero_grad()
 
             # Forward pass
@@ -136,7 +142,7 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
             spec_embedding = spec_encoder(spec)  # Spectrum embedding
 
             # Create labels for contrastive loss (1 for different galaxies, 0 for same galaxy)
-            labels = torch.zeros(img_embedding.size(0), dtype=torch.float32).to(img.device)
+            labels = torch.zeros(img_embedding.size(0), dtype=torch.float32).to(device)
 
             # Contrastive loss
             loss_contrastive = contrastive_loss_fn(img_embedding, spec_embedding, labels)
@@ -166,6 +172,7 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
 
     with torch.no_grad():
         for img, spec, redshift in train_loader:
+            img, spec, redshift = img.to(device), spec.to(device), redshift.to(device)
             img_embedding = img_encoder(img.permute(0, 3, 1, 2))
             train_embeddings.append(img_embedding.cpu().numpy())
             train_redshifts.append(redshift.numpy())
