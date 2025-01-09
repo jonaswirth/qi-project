@@ -6,6 +6,11 @@ pillow
 joblib
 h5py
 matplotlib
+pylatexenc
 qiskit
 qiskit_algorithms
 qiskit_machine_learning
+scikit-image
+pandas
+astroquery
+datasets

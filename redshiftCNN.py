@@ -31,17 +31,19 @@ class RedshiftCNN(nn.Module):
         super(RedshiftCNN, self).__init__()
         self.conv_layers = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.PReLU(),
+            nn.AvgPool2d(kernel_size=2, stride=2),
             nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.PReLU(),
+            nn.AvgPool2d(kernel_size=2, stride=2)
         )
         self.fc_layers = nn.Sequential(
-            nn.Linear(64 * 36 * 36, 128),  # Assuming input size is (144, 144, 3)
-            nn.ReLU(),
+            nn.Linear(64 * 64 * 64, 128),  # Assuming input size is (144, 144, 3)
+            nn.PReLU(),
             nn.Dropout(p=0.2),
-            nn.Linear(128, 1)  # Single output for regression
+            nn.Linear(128, 64),
+            nn.PReLU(),
+            nn.Linear(64, 1)  # Single output for regression
         )
 
     def forward(self, x):
@@ -104,7 +106,6 @@ if __name__ == "__main__":
 
         # Preprocessing and transforms
         transform = transforms.Compose([
-            transforms.Resize((144, 144)),
             transforms.ToTensor(),
             transforms.Normalize(mean=mean.tolist(), std=std.tolist())
         ])
@@ -128,7 +129,7 @@ if __name__ == "__main__":
 
         # Training loop
         start = time.time()
-        epochs = 40
+        epochs = 30
         for epoch in range(epochs):
             model.train()
             running_loss = 0.0
@@ -184,7 +185,7 @@ if __name__ == "__main__":
     # Run for each class of galaxy individually
     stats = []
 
-    for n in range(0, 10):
+    for n in range(0, 1):
         training_time, r2 = train_and_evaluate(n)
         stats.append([n, training_time, r2])
     
