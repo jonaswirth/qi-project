@@ -133,7 +133,7 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
         epoch_loss = 0.0
 
         for img, spec, redshift in train_loader:
-            img, spec, redshift = img.to(device), spec.to(device), redshift.to(device)
+            img, spec = img.to(device), spec.to(device)
 
             optimizer.zero_grad()
 
@@ -172,13 +172,13 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
 
     with torch.no_grad():
         for img, spec, redshift in train_loader:
-            img, spec, redshift = img.to(device), spec.to(device), redshift.to(device)
+            img, spec = img.to(device), spec.to(device)
             img_embedding = img_encoder(img.permute(0, 3, 1, 2))
             train_embeddings.append(img_embedding.cpu().numpy())
-            train_redshifts.append(redshift.cpu().numpy())
+            train_redshifts.append(redshift.numpy())
             spec_embedding = spec_encoder(spec)
             train_embeddings.append(spec_embedding.cpu().numpy())
-            train_redshifts.append(redshift.cpu().numpy())
+            train_redshifts.append(redshift.numpy())
             #combined_embedding = (img_embedding + spec_embedding) / 2
             #train_embeddings.append(combined_embedding.cpu().numpy())
 
@@ -230,5 +230,5 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
 
 # Run the pipeline
 if __name__ == "__main__":
-    filepath = "../datasets/astroclip_reduced_1.h5"
+    filepath = r"D:\Git\qi-project\datasets\astroclip_reduced_1.h5"
     train_and_evaluate(filepath, num_samples=1000)
