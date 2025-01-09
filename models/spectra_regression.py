@@ -6,6 +6,10 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
 
+RANDOM_SEED = 42
+torch.manual_seed(RANDOM_SEED)
+np.random.seed(RANDOM_SEED)
+
 # Define a custom PyTorch dataset
 class GalaxySpectraDataset(Dataset):
     def __init__(self, spectra, labels):
@@ -55,8 +59,9 @@ class RedshiftCNN(nn.Module):
 # Load the dataset
 def load_dataset(filepath, num_samples=500, normalize_redshift=True):
     with h5py.File(filepath, "r") as f:
-        spectra = f["spectra"][:num_samples]  # Limit to 500 samples
-        redshift = f["redshift"][:num_samples]
+        spectra = np.array(f["spectra"][:num_samples])
+        redshift = np.array(f["redshifts"][:num_samples])
+        spectra = spectra.squeeze(axis=-1)
 
     # Check for NaNs
     spectra = np.nan_to_num(spectra, nan=0.0)
@@ -66,12 +71,6 @@ def load_dataset(filepath, num_samples=500, normalize_redshift=True):
     mean_spectrum = np.mean(spectra, axis=0)
     std_spectrum = np.std(spectra, axis=0)
     spectra = (spectra - mean_spectrum) / (std_spectrum + 1e-8)
-
-    # Normalize redshifts (optional)
-    if normalize_redshift:
-        min_redshift, max_redshift = np.min(redshift), np.max(redshift)
-        redshift = (redshift - min_redshift) / (max_redshift - min_redshift)
-        return spectra, redshift, min_redshift, max_redshift
 
     return spectra, redshift
 
@@ -142,13 +141,13 @@ def evaluate_model(model, test_loader, device="cpu"):
 
 if __name__ == "__main__":
     # Paths and device setup
-    DATASET_PATH = "../datasets/Galaxy10_with_resampled_spectra.h5"
+    DATASET_PATH = "../datasets/astroclip_reduced_1.h5"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     EPOCHS = 40
 
     # Load the dataset
     print("Loading dataset...")
-    spectra, redshift, min_redshift, max_redshift = load_dataset(DATASET_PATH, num_samples=16000, normalize_redshift=True)
+    spectra, redshift = load_dataset(DATASET_PATH, num_samples=500, normalize_redshift=True)
     print(f"Loaded {len(spectra)} samples.")
     # Check for NaNs in spectra and redshift
     print("Number of NaN values in spectra:", np.isnan(spectra).sum())
@@ -186,8 +185,6 @@ if __name__ == "__main__":
     # Denormalize predictions and true labels
     predictions = np.array(predictions)
     true_labels = np.array(true_labels)
-    predictions = predictions * (max_redshift - min_redshift) + min_redshift
-    true_labels = true_labels * (max_redshift - min_redshift) + min_redshift
 
     # Compute final R² score on denormalized data
     final_r2 = r2_score(true_labels, predictions)
@@ -207,5 +204,5 @@ if __name__ == "__main__":
     plt.plot([min(true_labels), max(true_labels)], [min(true_labels), max(true_labels)], 'r--')
     plt.xlabel("True Redshift")
     plt.ylabel("Predicted Redshift")
-    plt.title("Predicted vs True Redshift")
+    plt.title(f"Predicted vs True Redshift (R² = {final_r2:.4f})")
     plt.show()

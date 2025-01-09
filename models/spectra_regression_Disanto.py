@@ -74,7 +74,8 @@ def load_dataset(filepath, num_samples=500):
     """
     with h5py.File(filepath, "r") as f:
         spectra = np.array(f["spectra"][:num_samples])
-        redshifts = np.array(f["redshift"][:num_samples])
+        redshifts = np.array(f["redshifts"][:num_samples])
+        spectra = spectra.squeeze(axis=-1)
     return spectra, redshifts
 
 # Initialize model weights
@@ -193,11 +194,19 @@ def train_model(filepath, batch_size=32, epochs=50, learning_rate=0.0001, num_sa
     r2 = r2_score(true_labels, predictions)
     print(f"R-squared score on test set: {r2:.4f}")
 
+    # Visualization of image predictions
+    plt.scatter(true_labels, predictions, alpha=0.6)
+    plt.plot([min(true_labels), max(true_labels)], [min(true_labels), max(true_labels)], color="red")
+    plt.xlabel("True Redshift")
+    plt.ylabel("Predicted Redshift")
+    plt.title(f"True vs. Predicted Redshifts (R²: {r2:.4f})")
+    plt.show()
+
     # Save model
-    torch.save(model.state_dict(), "redshift_model.pth")
-    print("Model saved as redshift_model.pth")
+    # torch.save(model.state_dict(), "redshift_model.pth")
+    # print("Model saved as redshift_model.pth")
 
 # Run the training
 if __name__ == "__main__":
-    filepath = "../datasets/Galaxy10_with_spectra.h5"
-    train_model(filepath)
+    filepath = "../datasets/astroclip_reduced_1.h5"
+    train_model(filepath, num_samples=20000)

@@ -122,7 +122,7 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
     optimizer = optim.Adam(list(img_encoder.parameters()) + list(spec_encoder.parameters()), lr=0.001)
 
     # Training loop
-    epochs = 20
+    epochs = 3
     # Initialize contrastive loss
     contrastive_loss_fn = ContrastiveLoss(margin=1.0)
 
