@@ -38,7 +38,7 @@ class RedshiftCNN(nn.Module):
             nn.AvgPool2d(kernel_size=2, stride=2)
         )
         self.fc_layers = nn.Sequential(
-            nn.Linear(64 * 64 * 64, 128),  # Assuming input size is (144, 144, 3)
+            nn.Linear(64 * 64 * 64, 128), 
             nn.PReLU(),
             nn.Dropout(p=0.2),
             nn.Linear(128, 64),

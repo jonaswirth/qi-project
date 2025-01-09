@@ -71,10 +71,12 @@ class GalaxyDataset(Dataset):
 
 if __name__ == "__main__":
     def train_and_evaluate():
+        EPOCHS = 30
+        N_SAMPLES = 1000
         # Load dataset
         with h5py.File(DATA_DIR, 'r') as f:
-            images = np.array(f['images'][:1000])
-            labels = np.array(f['redshifts'][:1000])
+            images = np.array(f['images'][:N_SAMPLES])
+            labels = np.array(f['redshifts'][:N_SAMPLES])
              
             # Filter to data where redshift is known
             valid_indices = ~np.isnan(labels)
@@ -123,7 +125,7 @@ if __name__ == "__main__":
 
         # Training loop
         start = time.time()
-        epochs = 30
+        epochs = EPOCHS
         for epoch in range(epochs):
             model.train()
             running_loss = 0.0
@@ -173,6 +175,15 @@ if __name__ == "__main__":
 
         r2 = r2_score(true_labels, predictions)
         print(f"R-squared score on test set: {r2:.4f}")
+
+        # Plot predicted vs true redshift on test set
+        plt.scatter(true_labels, predictions, alpha=0.5)
+        plt.plot([min(true_labels), max(true_labels)],
+                [min(true_labels), max(true_labels)], 'r--')
+        plt.xlabel("True Redshift")
+        plt.ylabel("Predicted Redshift")
+        plt.title(f"Test Set Predictions (R² = {true_labels:.4f})")
+        plt.show()
 
         return training_time, r2
 
