@@ -116,7 +116,9 @@ def build_and_train(img_size):
     n_qubits = img_size ** 2
     feature_map = ZFeatureMap(n_qubits)
 
-    ansatz = QuantumCircuit(8, name="Ansatz")
+    ansatz = QuantumCircuit(n_qubits, name="Ansatz")
+
+    
 
     # First Convolutional Layer
     ansatz.compose(conv_layer(8, "c1"), list(range(8)), inplace=True)

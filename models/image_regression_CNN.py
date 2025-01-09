@@ -1,5 +1,4 @@
-### Hybrid classical-quantum approach
-### Copy from redshiftCNN but add quantum part
+### Simple classical CNN for estimating redshift from image data
 
 import torch
 import torch.nn as nn
@@ -14,70 +13,43 @@ import h5py
 import os
 import time
 import matplotlib.pyplot as plt
-from qiskit import QuantumCircuit
-from qiskit.circuit import Parameter
-from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap, ZFeatureMap
-from qiskit_machine_learning.utils import algorithm_globals
-from qiskit_machine_learning.neural_networks import SamplerQNN, EstimatorQNN
-from qiskit_machine_learning.connectors import TorchConnector
 
 RANDOM_SEED = 42
 
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-DATA_DIR = "datasets/Galaxy10_DECals.h5"
+DATA_DIR = "../datasets/astroclip_reduced_1.h5"
 
 # Check if GPU is available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
-def create_qnn(num_qubits):
-        from qiskit.primitives import StatevectorEstimator as Estimator
-        estimator = Estimator()
-        feature_map = ZZFeatureMap(num_qubits)
-        ansatz = RealAmplitudes(num_qubits, reps=3)
-        qc = QuantumCircuit(num_qubits)
-        qc.compose(feature_map, inplace=True)
-        qc.compose(ansatz, inplace=True)
-
-        # REMEMBER TO SET input_gradients=True FOR ENABLING HYBRID GRADIENT BACKPROP
-        qnn = EstimatorQNN(
-            circuit=qc,
-            input_params=feature_map.parameters,
-            weight_params=ansatz.parameters,
-            input_gradients=True,
-            estimator=estimator,
-        )
-        return qnn
-
 # Define a simple CNN for regression
-class RedshiftHybridCNN(nn.Module):
-    def __init__(self, num_qubits):
-        super(RedshiftHybridCNN, self).__init__()
+class RedshiftCNN(nn.Module):
+    def __init__(self):
+        super(RedshiftCNN, self).__init__()
         self.conv_layers = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.PReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Output: 76x76
             nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.PReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)  # Output: 38x38
         )
-        self.fc1 = nn.Sequential(
-             nn.Linear(64 * 36 * 36, 128),
-             nn.BatchNorm1d(128),
-             nn.ReLU())
-        self.reduce = nn.Linear(128, num_qubits)
-        self.fc2 = TorchConnector(create_qnn(num_qubits))
-        self.fc3 = nn.Linear(1,1)
+        self.fc_layers = nn.Sequential(
+            nn.Linear(64 * 38 * 38, 128),  # Adjusted input size
+            nn.PReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(128, 64),
+            nn.PReLU(),
+            nn.Linear(64, 1)  # Single output for regression
+        )
 
     def forward(self, x):
         x = self.conv_layers(x)
         x = torch.flatten(x, start_dim=1)
-        x = self.fc1(x)
-        x = self.reduce(x)
-        x = self.fc2(x)
-        x = self.fc3(x)
+        x = self.fc_layers(x)
         return x
 
 # Custom dataset class
@@ -98,17 +70,11 @@ class GalaxyDataset(Dataset):
         return image, torch.tensor(label, dtype=torch.float32)
 
 if __name__ == "__main__":
-    def train_and_evaluate(class_index, num_qubits):
+    def train_and_evaluate():
         # Load dataset
         with h5py.File(DATA_DIR, 'r') as f:
-            images = np.array(f['images'])
-            classes = np.array(f['ans'])
-            labels = np.array(f['redshift'])
-
-            # Filter to one type of galaxy
-            class_indeces = np.where(classes == class_index)
-            images = images[class_indeces]
-            labels = labels[class_indeces]
+            images = np.array(f['images'][:1000])
+            labels = np.array(f['redshifts'][:1000])
              
             # Filter to data where redshift is known
             valid_indices = ~np.isnan(labels)
@@ -134,7 +100,6 @@ if __name__ == "__main__":
 
         # Preprocessing and transforms
         transform = transforms.Compose([
-            transforms.Resize((144, 144)),
             transforms.ToTensor(),
             transforms.Normalize(mean=mean.tolist(), std=std.tolist())
         ])
@@ -150,16 +115,15 @@ if __name__ == "__main__":
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
         # Initialize model, loss, and optimizer
-        model = RedshiftHybridCNN(num_qubits)
+        model = RedshiftCNN()
         model.to(device)
 
         criterion = nn.MSELoss()
-        optimizer = optim.Adagrad(model.parameters(), lr=0.01)
+        optimizer = optim.SGD(model.parameters(), lr=0.001)
 
         # Training loop
         start = time.time()
-        training_stats = []
-        epochs = 20
+        epochs = 30
         for epoch in range(epochs):
             model.train()
             running_loss = 0.0
@@ -189,7 +153,6 @@ if __name__ == "__main__":
 
             val_loss = val_loss / len(val_dataset)
             print(f"Epoch {epoch+1}/{epochs}, Training Loss: {epoch_loss:.6f}, Validation Loss: {val_loss:.6f}")
-            training_stats.append([epoch + 1, epoch_loss, val_loss])
 
         end = time.time()
         training_time = end - start
@@ -211,28 +174,7 @@ if __name__ == "__main__":
         r2 = r2_score(true_labels, predictions)
         print(f"R-squared score on test set: {r2:.4f}")
 
-        plt.plot(range(0, len(true_labels)), true_labels, labels="Actual")
-        plt.plot(range(0, len(predictions)), predictions, labels="Prediction")
-        plt.legend()
-        plt.show()
+        return training_time, r2
 
-        return training_time, r2, np.array(training_stats)
-
-    # Run for each class of galaxy individually
-    stats = []
-
-    classes = range(0, 10)
-    n_qubits = range(2, 8)
-
-    start = time.time()
-    for c in classes:
-        for q in n_qubits:
-            training_time, r2, training_stats = train_and_evaluate(c, q)
-            stats.append([c, q, training_time, r2])
-            np.savetxt(f"stats/hybrid/{c}_{q}_trainstats.csv", training_stats, delimiter=";")
-    
-    end = time.time()
-    print(f"Finished! Total runtime {(end - start) / 60} minutes")
-    
-    stats = np.array(stats)
-    np.savetxt("stats/hybrid/overall.csv", stats, delimiter=";")
+    training_time, r2 = train_and_evaluate()
+    print(f"Time: {training_time} R^2: {r2}")

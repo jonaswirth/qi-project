@@ -1,13 +1,11 @@
+# Generate the data for the classification task
 import numpy as np
 import random
 import matplotlib.pyplot as plt
-from qiskit import QuantumCircuit
-from qiskit.circuit.library import ZZFeatureMap
-import frqi
+import h5py
 
-
-IMG_SIZE = 4
-NUM_SAMPLES = 10
+IMG_SIZE = 8
+NUM_SAMPLES = 100
 
 #Creates the test data with images of size IMG_SIZE x IMG_SIZE and labels -1 for vertical lines and +1 for horizontal lines
 def create_data(num_images, size, bg_max_noise = 0.5, fg_max_noise = 0.1):
@@ -37,14 +35,6 @@ def create_data(num_images, size, bg_max_noise = 0.5, fg_max_noise = 0.1):
             labels.append(-1)
     return images, labels
 
-# TODO: i think that doesn't work properly...
-def normalize_images(images):
-    min = 0
-    max = np.pi/2
-    for img in images:
-        img = img * (max - min)
-    return images
-
 def visualize_data(images, labels):
     for i in range(0, 4):
         plt.subplot(2,2,i+1)
@@ -52,13 +42,13 @@ def visualize_data(images, labels):
         plt.title("Vertical" if labels[i] == -1 else "Horizontal")
     plt.show()
 
-images, labels = create_data(NUM_SAMPLES, IMG_SIZE)
-images = normalize_images(images)
-visualize_data(images, labels)
+def save_data_hdf5(images, labels):
+    with h5py.File("dataset.h5", "w") as f:
+        f.create_dataset("images", data=images)
+        f.create_dataset("labels", data=labels)
 
-img = images[0]
-qc = frqi.make_circ(img, 5)
-
-print(qc)
-
+if __name__ == "__main__":
+    images, labels = create_data(NUM_SAMPLES, IMG_SIZE)
+    visualize_data(images, labels)
+    save_data_hdf5(images, labels)
 
