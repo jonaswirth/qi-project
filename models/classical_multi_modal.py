@@ -126,47 +126,67 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
     img_encoder.eval()
     spec_encoder.eval()
     train_embeddings, train_redshifts = [], []
-    test_embeddings, test_redshifts = [], []
+    test_embeddings_img, test_redshifts = [], []
+    test_embeddings_spec = []
 
     with torch.no_grad():
         for img, spec, redshift in train_loader:
             img_embedding = img_encoder(img.permute(0, 3, 1, 2))
-            spec_embedding = spec_encoder(spec)
-            combined_embedding = (img_embedding + spec_embedding) / 2
-            train_embeddings.append(combined_embedding.cpu().numpy())
+            train_embeddings.append(img_embedding.cpu().numpy())
             train_redshifts.append(redshift.numpy())
+            spec_embedding = spec_encoder(spec)
+            train_embeddings.append(spec_embedding.cpu().numpy())
+            train_redshifts.append(redshift.numpy())
+            #combined_embedding = (img_embedding + spec_embedding) / 2
+            #train_embeddings.append(combined_embedding.cpu().numpy())
 
         for img, spec, redshift in test_loader:
             img_embedding = img_encoder(img.permute(0, 3, 1, 2))
-            #spec_embedding = spec_encoder(spec)
-            #combined_embedding = (img_embedding + spec_embedding) / 2
-            test_embeddings.append(img_embedding.cpu().numpy())
+            test_embeddings_img.append(img_embedding.cpu().numpy())
+
+            spec_embedding = spec_encoder(spec)
+            test_embeddings_spec.append(spec_embedding.cpu().numpy())
+
             test_redshifts.append(redshift.numpy())
 
     train_embeddings = np.vstack(train_embeddings)
     train_redshifts = np.hstack(train_redshifts)
-    test_embeddings = np.vstack(test_embeddings)
+    test_embeddings_img = np.vstack(test_embeddings_img)
+    test_embeddings_spec = np.vstack(test_embeddings_spec)
     test_redshifts = np.hstack(test_redshifts)
 
     # Train kNN regressor
     knn = KNeighborsRegressor(n_neighbors=knn_neighbors)
     knn.fit(train_embeddings, train_redshifts)
 
-    # Predict and evaluate
-    predictions = knn.predict(test_embeddings)
-    r2 = r2_score(test_redshifts, predictions)
-    mae = mean_absolute_error(test_redshifts, predictions)
-    print(f"Test R²: {r2:.4f}, Test MAE: {mae:.4f}")
+    # Predict and evaluate images
+    predictions_img = knn.predict(test_embeddings_img)
+    r2_img = r2_score(test_redshifts, predictions_img)
+    mae_img = mean_absolute_error(test_redshifts, predictions_img)
+    print(f"(Image) Test R²: {r2_img:.4f}, Test MAE: {mae_img:.4f}")
 
-    # Visualization
-    plt.scatter(test_redshifts, predictions, alpha=0.6)
+    predictions_spec = knn.predict(test_embeddings_spec)
+    r2_spec = r2_score(test_redshifts, predictions_spec)
+    mae_spec = mean_absolute_error(test_redshifts, predictions_spec)
+    print(f"(Spectrum) Test R²: {r2_spec:.4f}, Test MAE: {mae_spec:.4f}")
+
+    # Visualization of image predictions
+    plt.scatter(test_redshifts, predictions_img, alpha=0.6)
     plt.plot([min(test_redshifts), max(test_redshifts)], [min(test_redshifts), max(test_redshifts)], color="red")
     plt.xlabel("True Redshift")
     plt.ylabel("Predicted Redshift")
-    plt.title("True vs. Predicted Redshifts")
+    plt.title(f"True vs. Predicted Redshifts (R²: {r2_img:.4f})")
+    plt.show()
+
+    # Visualization of image predictions
+    plt.scatter(test_redshifts, predictions_spec, alpha=0.6)
+    plt.plot([min(test_redshifts), max(test_redshifts)], [min(test_redshifts), max(test_redshifts)], color="red")
+    plt.xlabel("True Redshift")
+    plt.ylabel("Predicted Redshift")
+    plt.title(f"True vs. Predicted Redshifts (R²: {r2_spec:.4f})")
     plt.show()
 
 # Run the pipeline
 if __name__ == "__main__":
     filepath = "../datasets/astroclip_reduced_1.h5"
-    train_and_evaluate(filepath)
+    train_and_evaluate(filepath, num_samples=1000)
