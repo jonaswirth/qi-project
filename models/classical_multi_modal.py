@@ -175,10 +175,10 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
             img, spec, redshift = img.to(device), spec.to(device), redshift.to(device)
             img_embedding = img_encoder(img.permute(0, 3, 1, 2))
             train_embeddings.append(img_embedding.cpu().numpy())
-            train_redshifts.append(redshift.numpy())
+            train_redshifts.append(redshift.cpu().numpy())
             spec_embedding = spec_encoder(spec)
             train_embeddings.append(spec_embedding.cpu().numpy())
-            train_redshifts.append(redshift.numpy())
+            train_redshifts.append(redshift.cpu().numpy())
             #combined_embedding = (img_embedding + spec_embedding) / 2
             #train_embeddings.append(combined_embedding.cpu().numpy())
 
@@ -189,7 +189,7 @@ def train_and_evaluate(filepath, num_samples=500, embedding_size=128, knn_neighb
             spec_embedding = spec_encoder(spec)
             test_embeddings_spec.append(spec_embedding.cpu().numpy())
 
-            test_redshifts.append(redshift.numpy())
+            test_redshifts.append(redshift.cpu().numpy())
 
     train_embeddings = np.vstack(train_embeddings)
     train_redshifts = np.hstack(train_redshifts)
