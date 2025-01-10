@@ -16,7 +16,7 @@ RANDOM_SEED = 42
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-DATA_DIR = "../datasets/astroclip_reduced_1.h5"
+DATA_DIR = "../datasets/astroclip_reduced_2.h5"
 
 # Check if GPU is available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -29,6 +29,31 @@ def create_bins(labels, n_bins):
     bin_indices = np.clip(np.digitize(labels, bins) - 1, 0, n_bins - 1)
     bin_means = (bins[:-1] + bins[1:]) / 2  # Bin centers
     return bins, bin_indices, bin_means
+
+def create_adaptive_bins(labels, n_bins):
+    """
+    Create bins with approximately equal distribution of samples.
+    
+    Args:
+        labels (np.ndarray): Array of redshift values.
+        n_bins (int): Number of bins.
+    
+    Returns:
+        bins (np.ndarray): Adaptive bin edges.
+        bin_indices (np.ndarray): Bin indices for each redshift value.
+        bin_means (np.ndarray): Mean redshift value for each bin.
+    """
+    # Calculate quantiles to create adaptive bin edges
+    bins = np.quantile(labels, np.linspace(0, 1, n_bins + 1))
+    
+    # Assign each redshift to a bin
+    bin_indices = np.clip(np.digitize(labels, bins) - 1, 0, n_bins - 1)
+    
+    # Calculate bin means
+    bin_means = np.array([labels[bin_indices == i].mean() for i in range(n_bins)])
+    
+    return bins, bin_indices, bin_means
+
 
 # Define the CNN for classification
 class RedshiftClassifier(nn.Module):
@@ -57,9 +82,10 @@ class RedshiftClassifier(nn.Module):
 
 # Custom Dataset
 class GalaxyDataset(Dataset):
-    def __init__(self, images, labels, transform=None):
+    def __init__(self, images, labels, redshifts, transform=None):
         self.images = images
         self.labels = labels
+        self.redshifts = redshifts
         self.transform = transform
 
     def __len__(self):
@@ -68,9 +94,10 @@ class GalaxyDataset(Dataset):
     def __getitem__(self, idx):
         image = self.images[idx]
         label = self.labels[idx]
+        redshift = self.redshifts[idx]
         if self.transform:
             image = self.transform(Image.fromarray(image.astype('uint8')).convert("RGB"))
-        return image, torch.tensor(label, dtype=torch.long)  # Labels are class indices for classification
+        return image, torch.tensor(label, dtype=torch.long), redshift  # Labels are class indices for classification
 
 def plot_redshift_distribution(redshifts, bin_indices, n_bins, bin_means):
     """
@@ -102,33 +129,29 @@ def plot_redshift_distribution(redshifts, bin_indices, n_bins, bin_means):
 # Training and Evaluation
 if __name__ == "__main__":
     def train_and_evaluate(n_bins=64):
-        EPOCHS = 30
+        EPOCHS = 10
         N_SAMPLES = 500
         # Load dataset
         with h5py.File(DATA_DIR, 'r') as f:
             images = np.array(f['images'][:N_SAMPLES])
             labels = np.array(f['redshifts'][:N_SAMPLES])
 
-            # Filter to data where redshift is known
-            valid_indices = ~np.isnan(labels)
-            images = images[valid_indices]
-            labels = labels[valid_indices]
-
             print(f"{labels.shape[0]} valid samples loaded")
             print(images.shape)
             print(labels.shape)
 
             # Create bins for classification
-            bins, bin_indices, bin_means = create_bins(labels, n_bins)
+            #bins, bin_indices, bin_means = create_bins(labels, n_bins)
+            bins, bin_indices, bin_means = create_adaptive_bins(labels, n_bins)
 
-            plot_redshift_distribution(labels, bin_indices, n_bins, bin_means)
+            #plot_redshift_distribution(labels, bin_indices, n_bins, bin_means)
 
             # Split the data into training, validation, and testing sets
-            images_train, images_temp, labels_train, labels_temp = train_test_split(
-                images, bin_indices, test_size=0.3, random_state=RANDOM_SEED
+            images_train, images_temp, labels_train, labels_temp, redshift_train, redshift_temp = train_test_split(
+                images, bin_indices, labels, test_size=0.3, random_state=RANDOM_SEED
             )
-            images_val, images_test, labels_val, labels_test = train_test_split(
-                images_temp, labels_temp, test_size=0.5, random_state=RANDOM_SEED
+            images_val, images_test, labels_val, labels_test, redshift_val, redshift_test = train_test_split(
+                images_temp, labels_temp, redshift_temp, test_size=0.5, random_state=RANDOM_SEED
             )
 
         mean = np.mean(images, axis=(0, 1, 2))  # Normalize by 255
@@ -141,9 +164,9 @@ if __name__ == "__main__":
         ])
 
         # Create datasets and dataloaders
-        train_dataset = GalaxyDataset(images_train, labels_train, transform=transform)
-        val_dataset = GalaxyDataset(images_val, labels_val, transform=transform)
-        test_dataset = GalaxyDataset(images_test, labels_test, transform=transform)
+        train_dataset = GalaxyDataset(images_train, labels_train, redshift_train, transform=transform)
+        val_dataset = GalaxyDataset(images_val, labels_val, redshift_val, transform=transform)
+        test_dataset = GalaxyDataset(images_test, labels_test, redshift_test, transform=transform)
 
         train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
@@ -159,7 +182,7 @@ if __name__ == "__main__":
         for epoch in range(EPOCHS):
             model.train()
             running_loss = 0.0
-            for inputs, targets in train_loader:
+            for inputs, targets, _ in train_loader:
                 inputs, targets = inputs.to(device), targets.to(device)
 
                 optimizer.zero_grad()
@@ -176,7 +199,7 @@ if __name__ == "__main__":
             model.eval()
             val_loss = 0.0
             with torch.no_grad():
-                for inputs, targets in val_loader:
+                for inputs, targets, _ in val_loader:
                     inputs, targets = inputs.to(device), targets.to(device)
                     outputs = model(inputs)
                     loss = criterion(outputs, targets)
@@ -194,17 +217,17 @@ if __name__ == "__main__":
         predictions = []
         true_labels = []
         with torch.no_grad():
-            for inputs, targets in test_loader:
+            for inputs, targets, redshifts in test_loader:
                 inputs, targets = inputs.to(device), targets.to(device)
                 outputs = model(inputs)  # Logits
                 probs = torch.softmax(outputs, dim=1)  # Probabilities
                 pred_redshift = (probs * torch.tensor(bin_means, device=device)).sum(dim=1)  # Weighted sum
                 predictions.extend(pred_redshift.cpu().numpy())
-                true_labels.extend(targets.cpu().numpy())
+                true_labels.extend(redshifts)
 
         # Convert true labels (class indices) back to redshift values
-        true_redshifts = [bin_means[label] for label in true_labels]
-
+        #true_redshifts = [bin_means[label] for label in true_labels]
+        true_redshifts = true_labels
         # Compute R² score
         r2 = r2_score(true_redshifts, predictions)
         print(f"R-squared score on test set: {r2:.4f}")
@@ -220,5 +243,5 @@ if __name__ == "__main__":
 
         return training_time, r2
 
-    training_time, r2 = train_and_evaluate(n_bins=16)
+    training_time, r2 = train_and_evaluate(n_bins=8)
     print(f"Time: {training_time:.2f} seconds, R²: {r2:.4f}")
