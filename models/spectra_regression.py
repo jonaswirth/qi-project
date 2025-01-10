@@ -141,7 +141,7 @@ def evaluate_model(model, test_loader, device="cpu"):
 
 if __name__ == "__main__":
     # Paths and device setup
-    DATASET_PATH = "../datasets/astroclip_reduced_1.h5"
+    DATASET_PATH = "../datasets/astroclip_reduced_2.h5"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     EPOCHS = 40
 

@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
 from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
+from torchvision import transforms
 
 RANDOM_SEED = 42
 torch.manual_seed(RANDOM_SEED)
@@ -12,7 +13,8 @@ np.random.seed(RANDOM_SEED)
 
 # Define a custom PyTorch dataset
 class GalaxySpectraDataset(Dataset):
-    def __init__(self, spectra, labels):
+    def __init__(self, images, spectra, labels):
+        self.images = images
         self.spectra = spectra
         self.labels = labels
 
@@ -20,12 +22,35 @@ class GalaxySpectraDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
+        image = self.images[idx]
         spectrum = self.spectra[idx]
         label = self.labels[idx]
 
-        return torch.tensor(spectrum, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
+        return torch.tensor(image, dtype=torch.Float32), torch.tensor(spectrum, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
 
-# Define a simple FNN for regression
+# Define the image encoder
+class ImageEncoder(nn.Module):
+    def __init__(self, embedding_size):
+        super(ImageEncoder, self).__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),  # Downsample
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2)
+        )
+        self.fc = nn.Sequential(
+            nn.Linear(64 * 38 * 38, embedding_size),  # Adjust based on input size
+            nn.ReLU()
+        )
+
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = torch.flatten(x, start_dim=1)
+        return self.fc(x)
+
+# Define Spectra Encoder
 class SpectraEncoder(nn.Module):
     def __init__(self, input_dim, embedding_size):
         super(SpectraEncoder, self).__init__()
@@ -70,6 +95,7 @@ class EmbeddingRegressor(nn.Module):
 # Load the dataset
 def load_dataset(filepath, num_samples=500, normalize_redshift=True):
     with h5py.File(filepath, "r") as f:
+        images = np.array(f["images"][:num_samples])
         spectra = np.array(f["spectra"][:num_samples])
         redshift = np.array(f["redshifts"][:num_samples])
         spectra = spectra.squeeze(axis=-1)
@@ -83,21 +109,33 @@ def load_dataset(filepath, num_samples=500, normalize_redshift=True):
     std_spectrum = np.std(spectra, axis=0)
     spectra = (spectra - mean_spectrum) / (std_spectrum + 1e-8)
 
-    return spectra, redshift
+    #TODO: normalize images
+    # mean = np.mean(images, axis=(0, 1, 2)) / 255.0  # Normalize by 255
+    # std = np.std(images, axis=(0, 1, 2)) / 255.0
+
+    # # Preprocessing and transforms
+    # transform = transforms.Compose([
+    #         transforms.ToTensor(),
+    #         transforms.Normalize(mean=mean.tolist(), std=std.tolist())
+    #     ])
+
+    return images, spectra, redshift
 
 
 # Train the model
-def train_model(specEncoder, regressor, train_loader, val_loader, criterion, optimizer, epochs=10, device="cpu"):
+def train_model(imgEncoder, specEncoder, regressor, train_loader, val_loader, criterion, optimizer, epochs=10, device="cpu"):
     train_losses, val_losses = [], []
 
     for epoch in range(epochs):
         specEncoder.train()
         running_loss = 0.0
 
-        for spectra, labels in train_loader:
+        for img, spectra, labels in train_loader:
             spectra, labels = spectra.to(device), labels.to(device)
 
             optimizer.zero_grad()
+
+            img_embedding = imgEncoder(img)
             spec_embedding = specEncoder(spectra)
             
             redshift = regressor(spec_embedding).squeeze()
@@ -137,15 +175,18 @@ def train_model(specEncoder, regressor, train_loader, val_loader, criterion, opt
     return train_losses, val_losses
 
 # Evaluate the model on the test set
-def evaluate_model(specEncoder, regressor, test_loader, device="cpu"):
+def evaluate_model(imgEncoder, specEncoder, regressor, test_loader, device="cpu"):
     specEncoder.eval()
     predictions, true_labels = [], []
 
     with torch.no_grad():
-        for spectra, labels in test_loader:
+        for img, spectra, labels in test_loader:
             spectra, labels = spectra.to(device), labels.to(device)
-            embeddings = specEncoder(spectra).squeeze()
-            outputs = regressor(embeddings)
+            
+            spec_embeddings = specEncoder(spectra).squeeze()
+            img_embeddings = imgEncoder(img)
+
+            outputs = regressor(spec_embeddings)
 
             predictions.extend(outputs.cpu().numpy())
             true_labels.extend(labels.cpu().numpy())
@@ -189,6 +230,7 @@ if __name__ == "__main__":
 
     # Initialize model, loss, and optimizer
     input_dim = spectra.shape[1]  # Input dimension = number of spectral features
+    imgEncoder = ImageEncoder(embedding_size=EMBEDDING_SIZE).to(DEVICE)
     specEncoder = SpectraEncoder(input_dim=input_dim, embedding_size=EMBEDDING_SIZE).to(DEVICE)
     regressor = EmbeddingRegressor(embedding_size=EMBEDDING_SIZE).to(DEVICE)
     criterion = nn.SmoothL1Loss()
@@ -196,11 +238,11 @@ if __name__ == "__main__":
 
     # Train the model
     print("Training model...")
-    train_losses, val_losses = train_model(specEncoder, regressor, train_loader, val_loader, criterion, optimizer, epochs=EPOCHS, device=DEVICE)
+    train_losses, val_losses = train_model(imgEncoder, specEncoder, regressor, train_loader, val_loader, criterion, optimizer, epochs=EPOCHS, device=DEVICE)
 
     # Evaluate the model on the test set
     print("Evaluating model on test set...")
-    predictions, true_labels = evaluate_model(specEncoder, regressor, test_loader, device=DEVICE)
+    predictions, true_labels = evaluate_model(imgEncoder, specEncoder, regressor, test_loader, device=DEVICE)
 
     # Denormalize predictions and true labels
     predictions = np.array(predictions)

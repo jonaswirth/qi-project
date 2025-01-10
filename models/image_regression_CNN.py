@@ -72,7 +72,7 @@ class GalaxyDataset(Dataset):
 if __name__ == "__main__":
     def train_and_evaluate():
         EPOCHS = 30
-        N_SAMPLES = 1000
+        N_SAMPLES = 500
         # Load dataset
         with h5py.File(DATA_DIR, 'r') as f:
             images = np.array(f['images'][:N_SAMPLES])
@@ -97,8 +97,8 @@ if __name__ == "__main__":
 
             print(labels_train.shape, labels_val.shape, labels_test.shape)
 
-        mean = np.mean(images, axis=(0, 1, 2)) / 255.0  # Normalize by 255
-        std = np.std(images, axis=(0, 1, 2)) / 255.0
+        mean = np.mean(images, axis=(0, 1, 2))  # Normalize by 255
+        std = np.std(images, axis=(0, 1, 2))
 
         # Preprocessing and transforms
         transform = transforms.Compose([
@@ -182,7 +182,7 @@ if __name__ == "__main__":
                 [min(true_labels), max(true_labels)], 'r--')
         plt.xlabel("True Redshift")
         plt.ylabel("Predicted Redshift")
-        plt.title(f"Test Set Predictions (R² = {true_labels:.4f})")
+        plt.title(f"Test Set Predictions (R² = {r2:.4f})")
         plt.show()
 
         return training_time, r2
