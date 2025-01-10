@@ -26,9 +26,9 @@ class GalaxySpectraDataset(Dataset):
         return torch.tensor(spectrum, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
 
 # Define a simple FNN for regression
-class RedshiftCNN(nn.Module):
-    def __init__(self, input_dim):
-        super(RedshiftCNN, self).__init__()
+class SpectraEncoder(nn.Module):
+    def __init__(self, input_dim, embedding_size):
+        super(SpectraEncoder, self).__init__()
         self.conv_layers = nn.Sequential(
             nn.Conv1d(in_channels=1, out_channels=16, kernel_size=5, stride=1, padding=2),  # (batch, 1, input_dim) -> (batch, 16, input_dim)
             nn.Tanh(),
@@ -44,9 +44,7 @@ class RedshiftCNN(nn.Module):
             nn.Linear(64 * (input_dim // 8), 128),  # Flatten and pass to dense layer
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1)  # Single output for regression
+            nn.Linear(128, embedding_size)
         )
 
     def forward(self, x):
@@ -55,6 +53,19 @@ class RedshiftCNN(nn.Module):
         x = torch.flatten(x, start_dim=1)  # Flatten for fully connected layers
         x = self.fc_layers(x)  # Apply fully connected layers
         return x
+
+#Predict the redshift from the Embeddings
+class EmbeddingRegressor(nn.Module):
+    def __init__(self, embedding_size):
+        super(EmbeddingRegressor, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(embedding_size, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)  # Output single scalar for redshift
+        )
+
+    def forward(self, embedding):
+        return self.fc(embedding)
 
 # Load the dataset
 def load_dataset(filepath, num_samples=500, normalize_redshift=True):
@@ -76,19 +87,22 @@ def load_dataset(filepath, num_samples=500, normalize_redshift=True):
 
 
 # Train the model
-def train_model(model, train_loader, val_loader, criterion, optimizer, epochs=10, device="cpu"):
+def train_model(specEncoder, regressor, train_loader, val_loader, criterion, optimizer, epochs=10, device="cpu"):
     train_losses, val_losses = [], []
 
     for epoch in range(epochs):
-        model.train()
+        specEncoder.train()
         running_loss = 0.0
 
         for spectra, labels in train_loader:
             spectra, labels = spectra.to(device), labels.to(device)
 
             optimizer.zero_grad()
-            outputs = model(spectra).squeeze()
-            loss = criterion(outputs, labels)
+            spec_embedding = specEncoder(spectra)
+            
+            redshift = regressor(spec_embedding).squeeze()
+
+            loss = criterion(redshift.squeeze(), labels)
             loss.backward()
             optimizer.step()
 
@@ -98,16 +112,18 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, epochs=10
         train_losses.append(train_loss)
 
         # Validation step
-        model.eval()
+        specEncoder.eval()
         val_loss = 0.0
         predictions, true_labels = [], []
 
         with torch.no_grad():
             for spectra, labels in val_loader:
                 spectra, labels = spectra.to(device), labels.to(device)
-                outputs = model(spectra).squeeze()
-                val_loss += criterion(outputs, labels).item() * spectra.size(0)
-                predictions.extend(outputs.cpu().numpy())
+                spec_embedding = specEncoder(spectra)
+                redshift = regressor(spec_embedding).squeeze()
+
+                val_loss += criterion(redshift, labels).item() * spectra.size(0)
+                predictions.extend(redshift.cpu().numpy())
                 true_labels.extend(labels.cpu().numpy())
 
         val_loss = val_loss / len(val_loader.dataset)
@@ -121,14 +137,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, epochs=10
     return train_losses, val_losses
 
 # Evaluate the model on the test set
-def evaluate_model(model, test_loader, device="cpu"):
-    model.eval()
+def evaluate_model(specEncoder, regressor, test_loader, device="cpu"):
+    specEncoder.eval()
     predictions, true_labels = [], []
 
     with torch.no_grad():
         for spectra, labels in test_loader:
             spectra, labels = spectra.to(device), labels.to(device)
-            outputs = model(spectra).squeeze()
+            embeddings = specEncoder(spectra).squeeze()
+            outputs = regressor(embeddings)
+
             predictions.extend(outputs.cpu().numpy())
             true_labels.extend(labels.cpu().numpy())
 
@@ -144,10 +162,11 @@ if __name__ == "__main__":
     DATASET_PATH = "../datasets/astroclip_reduced_2.h5"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     EPOCHS = 40
+    EMBEDDING_SIZE = 64
 
     # Load the dataset
     print("Loading dataset...")
-    spectra, redshift = load_dataset(DATASET_PATH, num_samples=500, normalize_redshift=True)
+    spectra, redshift = load_dataset(DATASET_PATH, num_samples=100, normalize_redshift=True)
     print(f"Loaded {len(spectra)} samples.")
     # Check for NaNs in spectra and redshift
     print("Number of NaN values in spectra:", np.isnan(spectra).sum())
@@ -170,17 +189,18 @@ if __name__ == "__main__":
 
     # Initialize model, loss, and optimizer
     input_dim = spectra.shape[1]  # Input dimension = number of spectral features
-    model = RedshiftCNN(input_dim=input_dim).to(DEVICE)
+    specEncoder = SpectraEncoder(input_dim=input_dim, embedding_size=EMBEDDING_SIZE).to(DEVICE)
+    regressor = EmbeddingRegressor(embedding_size=EMBEDDING_SIZE).to(DEVICE)
     criterion = nn.SmoothL1Loss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(specEncoder.parameters(), lr=0.001)
 
     # Train the model
     print("Training model...")
-    train_losses, val_losses = train_model(model, train_loader, val_loader, criterion, optimizer, epochs=EPOCHS, device=DEVICE)
+    train_losses, val_losses = train_model(specEncoder, regressor, train_loader, val_loader, criterion, optimizer, epochs=EPOCHS, device=DEVICE)
 
     # Evaluate the model on the test set
     print("Evaluating model on test set...")
-    predictions, true_labels = evaluate_model(model, test_loader, device=DEVICE)
+    predictions, true_labels = evaluate_model(specEncoder, regressor, test_loader, device=DEVICE)
 
     # Denormalize predictions and true labels
     predictions = np.array(predictions)
