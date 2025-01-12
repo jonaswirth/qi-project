@@ -16,7 +16,7 @@ RANDOM_SEED = 42
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-DATA_DIR = "../datasets/astroclip_reduced_2.h5"
+DATA_DIR = "../datasets/astroclip_reduced_3.h5"
 
 # Check if GPU is available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -68,7 +68,7 @@ class RedshiftClassifier(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2)  # Output: 38x38
         )
         self.fc_layers = nn.Sequential(
-            nn.Linear(64 * 38 * 38, 128),  # Adjusted input size
+            nn.Linear(64 * 16 * 16, 128),  # Adjusted input size
             nn.PReLU(),
             nn.Dropout(p=0.2),
             nn.Linear(128, n_bins)  # Output probabilities for each bin
