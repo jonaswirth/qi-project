@@ -191,12 +191,4 @@ if __name__ == "__main__":
     
     stats = np.array(stats)
 
-    plt.plot(stats[:,0], stats[:,1])
-    plt.title("Training time")
-    plt.savefig(f"images/redshiftCNN/training_time.png")
-    plt.clf()
-
-    plt.plot(stats[:,0], stats[:,2])
-    plt.title("R-squared score")
-    plt.savefig(f"images/redshiftCNN/scores.png")
-    plt.clf()
+    np.savetxt(f"stats/classic/trainstats.csv", stats, delimiter=";")
