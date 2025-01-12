@@ -19,7 +19,7 @@ RANDOM_SEED = 42
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-DATA_DIR = "../datasets/astroclip_reduced_3.h5"
+DATA_DIR = r"D:\Git\qi-project\datasets\astroclip_reduced_3.h5"
 
 # Check if GPU is available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -43,7 +43,13 @@ class RedshiftCNN(nn.Module):
             nn.Dropout(p=0.2),
             nn.Linear(128, 64),
             nn.PReLU(),
-            nn.Linear(64, 1)  # Single output for regression
+            nn.Linear(64, 32),
+            nn.PReLU(),
+            nn.Linear(32, 16),
+            nn.PReLU(),
+            nn.Linear(16, 6),
+            nn.PReLU(),
+            nn.Linear(6, 1)  # Single output for regression
         )
 
     def forward(self, x):
@@ -72,7 +78,7 @@ class GalaxyDataset(Dataset):
 if __name__ == "__main__":
     def train_and_evaluate():
         EPOCHS = 30
-        N_SAMPLES = 1000
+        N_SAMPLES = 20000
         # Load dataset
         with h5py.File(DATA_DIR, 'r') as f:
             images = np.array(f['images'][:N_SAMPLES])
@@ -120,8 +126,8 @@ if __name__ == "__main__":
         model = RedshiftCNN()
         model.to(device)
 
-        criterion = nn.MSELoss()
-        optimizer = optim.SGD(model.parameters(), lr=0.001)
+        criterion = nn.SmoothL1Loss()
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
 
         # Training loop
         start = time.time()
