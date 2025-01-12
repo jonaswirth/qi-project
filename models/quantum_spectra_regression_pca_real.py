@@ -3,13 +3,13 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
-from qiskit_machine_learning.optimizers import COBYLA, ADAM
+from qiskit_machine_learning.optimizers import COBYLA, ADAM, SPSA
 from qiskit.circuit.library import RealAmplitudes, PauliFeatureMap, ZFeatureMap
 from qiskit_machine_learning.algorithms.regressors import VQR
 from qiskit_machine_learning.utils import algorithm_globals
 import h5py
 import time
-from qiskit_ibm_runtime import QiskitRuntimeService, EstimatorV2 as Estimator
+from qiskit_ibm_runtime import QiskitRuntimeService, EstimatorV2 as Estimator, Session
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 
 import matplotlib.pyplot as plt
@@ -42,6 +42,17 @@ def prepare_data(samples, labels, n_qubits):
     sample_train, sample_test, label_train, label_test = train_test_split(samples, labels, test_size=0.2, random_state=RANDOM_STATE)
     return sample_train, sample_test, label_train, label_test, scaler
 
+def batch_predict(vqr, data, batch_size=10):
+    """
+    Perform predictions in batches to avoid exceeding the execution limits.
+    """
+    results = []
+    for i in range(0, len(data), batch_size):
+        batch = data[i:i + batch_size]
+        results.extend(vqr.predict(batch))
+    return np.array(results)
+
+
 #Train and evaluate a VQR with given configuration
 def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
     start = time.time()
@@ -52,23 +63,26 @@ def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
     with open("../credentials/token.txt", "r") as file:
         token = file.readlines()[0]
         
-    service = QiskitRuntimeService(channel="ibm_quantum", token=token)
-    backend = service.least_busy(operational=True, simulator=False, min_num_qubits=n_qubits)
-    estimator = Estimator(backend)
-    pm = generate_preset_pass_manager(backend=backend, optimization_level=1)
+        service = QiskitRuntimeService(channel="ibm_quantum", token=token)
+        backend = service.least_busy(operational=True, simulator=False, min_num_qubits=n_qubits)
 
-    featureMap = ZFeatureMap(n_qubits, reps=reps_feat_map)
-    ansatz = RealAmplitudes(n_qubits, reps=reps_ansatz)
+        with Session(backend=backend) as session:
+            estimator = Estimator(session)
+        
+            pm = generate_preset_pass_manager(backend=backend, optimization_level=0)
 
-    featureMap = pm.run(featureMap)
-    ansatz = pm.run(ansatz)
+            featureMap = PauliFeatureMap(n_qubits, reps=reps_feat_map, paulis=['Z', 'ZZ'])
+            ansatz = RealAmplitudes(n_qubits, reps=reps_ansatz)
 
-    def callback(_, eval):
-        print(eval)
+            featureMap = pm.run(featureMap)
+            ansatz = pm.run(ansatz)
 
-    vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=ADAM(maxiter=OPTIMIZER_MAX_ITER), estimator=estimator, callback=callback)
-    vqr.fit(sample_train, label_train)
-    pred = vqr.predict(sample_test)
+            def callback(_, eval):
+                print(eval)
+
+            vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=SPSA(maxiter=OPTIMIZER_MAX_ITER, callback=callback), estimator=estimator, callback=callback, pass_manager=pm)
+            vqr.fit(sample_train, label_train)
+            pred = vqr.predict(sample_test)
 
     # Revert scaling
     pred = scaler.inverse_transform(pred.reshape(-1,1)).flatten()
@@ -91,8 +105,8 @@ def plot(label_test, pred):
 if __name__ == "__main__":
     start = time.time()
     
-    NUM_SAMPLES = 200
-    NUM_QUBITS = 50
+    NUM_SAMPLES = 25
+    NUM_QUBITS = 5
     REPS_FEATURE_MAP = 4
     REPS_ANSATZ = 2
     samples, labels = load_data(NUM_SAMPLES)
