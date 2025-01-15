@@ -12,6 +12,7 @@ qiskit_algorithms
 qiskit_machine_learning
 qiskit_ibm_runtime
 scikit-image
+qiskit_aer
 pandas
 astroquery
 datasets

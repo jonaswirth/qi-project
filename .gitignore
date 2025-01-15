@@ -1,6 +1,7 @@
 # Project excludes
 datasets/
 images/
+pretrained/
 
 
 # Byte-compiled / optimized / DLL files

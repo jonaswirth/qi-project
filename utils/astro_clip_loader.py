@@ -22,13 +22,7 @@ def process_images(images, cutout_size):
         cropped_img = crop_image(img, cutout_size)
         
         # Rearrange channels from (g, r, z) to (r, g, b)
-        cropped_img = cropped_img[:, :, [1, 0, 2]]  # Reorder the channels
-        
-        # Normalize the z-channel to match the scale of r and g channels
-        cropped_img[:, :, 2] = (
-            cropped_img[:, :, 2] / np.max(cropped_img[:, :, 2]) * np.max(cropped_img[:, :, [0, 1]])
-            if np.max(cropped_img[:, :, 2]) > 0 else cropped_img[:, :, 2]
-        )
+        cropped_img = cropped_img[:, :, [1, 0, 2]]
         
         processed_images.append(cropped_img)
     

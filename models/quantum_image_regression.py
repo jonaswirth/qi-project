@@ -3,7 +3,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
-from qiskit_machine_learning.optimizers import COBYLA
+from qiskit_machine_learning.optimizers import COBYLA, ADAM
 from qiskit.circuit.library import RealAmplitudes, ZFeatureMap, PauliFeatureMap
 from qiskit_machine_learning.algorithms.regressors import VQR
 from qiskit.primitives import StatevectorEstimator as Estimator
@@ -11,7 +11,6 @@ from qiskit_machine_learning.utils import algorithm_globals
 import h5py
 import time
 from qiskit_ibm_runtime import QiskitRuntimeService, EstimatorV2 as RealEstimator
-from qiskit.quantum_info import SparsePauliOp
 
 import matplotlib.pyplot as plt
 
@@ -19,22 +18,18 @@ RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 algorithm_globals.random_seed = RANDOM_STATE
 
-OPTIMIZER_MAX_ITER = 70
-FILE_PATH = "../stats/quantum_spec_regr_gridsearch.csv"
+OPTIMIZER_MAX_ITER = 60
 
 #Load the dataset
 def load_data(num_samples):
-    with h5py.File("../datasets/astroclip_reduced_2.h5", "r") as f:
-        samples = np.array(f["spectra"][:num_samples]).squeeze(axis = -1)
+    with h5py.File("../datasets/astroclip_quantum.h5", "r") as f:
+        samples = np.array(f["images"][:num_samples])
         labels = np.array(f["redshifts"][:num_samples])
     return samples, labels
 
 
-#Prepare the data: use PCA to reduce the dimension to number of qubits, scale the data to range (-1, 1) and perform train test split
-def prepare_data(samples, labels, n_qubits):
-    pca = PCA(n_components=n_qubits, random_state=RANDOM_STATE)
-    samples = pca.fit_transform(samples)
-
+#Prepare the data: scale the data to range (-1, 1) and perform train test split
+def prepare_data(samples, labels):
     scaler = MinMaxScaler((-1, 1))
     samples = scaler.fit_transform(samples)
 
@@ -49,21 +44,31 @@ def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
     start = time.time()
     print(f"Running with config:\nN QUBITS: {n_qubits}\nReps feature map:{reps_feat_map}\nReps ansatz:{reps_ansatz}")
 
-    sample_train, sample_test, label_train, label_test, scaler = prepare_data(samples, labels, n_qubits)
+    sample_train, sample_test, label_train, label_test, scaler = prepare_data(samples, labels)
 
     #Estimator for local simulation:
     estimator = Estimator(seed=RANDOM_STATE)
 
-    featureMap = PauliFeatureMap(n_qubits, reps=reps_feat_map, paulis=['Z'])
+    featureMap = ZFeatureMap(n_qubits, reps=reps_feat_map)
     ansatz = RealAmplitudes(n_qubits, reps=reps_ansatz)
 
     def callback(_, eval):
         print(eval)
 
-    observable = SparsePauliOp.from_list([("Z" * n_qubits, 1.0)])
+    vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=COBYLA(maxiter=OPTIMIZER_MAX_ITER), estimator=estimator, callback=callback)
 
-    vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=COBYLA(maxiter=OPTIMIZER_MAX_ITER), estimator=estimator, callback=callback, observable=observable)
-    vqr.fit(sample_train, label_train)
+    #Fit in batches of 10
+    for i in range(0, len(sample_train), 10):
+        batch_samples = sample_train[i:i + 10]
+        batch_labels = label_train[i:i + 10]
+
+        VQR.load()
+
+
+        vqr.fit(batch_samples, batch_labels)
+        vqr.weights
+
+    #vqr.fit(sample_train, label_train)
     pred = vqr.predict(sample_test)
 
     # Revert scaling

@@ -11,6 +11,10 @@ import h5py
 import time
 from qiskit_ibm_runtime import QiskitRuntimeService, EstimatorV2 as Estimator, Session
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+from qiskit_ibm_runtime.fake_provider import FakeBrisbane
+#from qiskit_aer import AerSimulator
+from qiskit import transpile
+from qiskit.quantum_info import SparsePauliOp
 
 import matplotlib.pyplot as plt
 
@@ -18,7 +22,7 @@ RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 algorithm_globals.random_seed = RANDOM_STATE
 
-OPTIMIZER_MAX_ITER = 3
+OPTIMIZER_MAX_ITER = 50
 FILE_PATH = "../stats/quantum_spec_regr_gridsearch.csv"
 
 #Load the dataset
@@ -63,24 +67,39 @@ def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
     with open("../credentials/token.txt", "r") as file:
         token = file.readlines()[0]
         
-        service = QiskitRuntimeService(channel="ibm_quantum", token=token)
-        backend = service.least_busy(operational=True, simulator=False, min_num_qubits=n_qubits)
+        service = QiskitRuntimeService(channel="ibm_cloud", token=token)
+        backend = service.least_busy(operational=True, simulator=True, min_num_qubits=n_qubits)
+        #backend = FakeBrisbane()
 
-        with Session(backend=backend) as session:
+        print(backend)
+
+        with Session(backend=backend, max_time=60) as session:
             estimator = Estimator(session)
-        
-            pm = generate_preset_pass_manager(backend=backend, optimization_level=0)
 
-            featureMap = PauliFeatureMap(n_qubits, reps=reps_feat_map, paulis=['Z', 'ZZ'])
+            logical_to_physical = list(range(n_qubits))
+            pm = generate_preset_pass_manager(backend=backend, optimization_level=3)
+
+            featureMap = PauliFeatureMap(n_qubits, reps=reps_feat_map, paulis=['Z'])
             ansatz = RealAmplitudes(n_qubits, reps=reps_ansatz)
 
-            featureMap = pm.run(featureMap)
-            ansatz = pm.run(ansatz)
+            print(featureMap.num_qubits)
+
+            featureMap = transpile(featureMap, backend, initial_layout=logical_to_physical, optimization_level=3)
+            ansatz = transpile(ansatz, backend, initial_layout=logical_to_physical, optimization_level=3)
+
+            print(featureMap.num_qubits)
+            print(featureMap.draw())
+
+            #observable = SparsePauliOp([("Z" * n_qubits) + ("I" * (featureMap.num_qubits - n_qubits))], coeffs=[1.0])
+            #observable = transpile(observable, backend=backend, initial_layout=list(range(n_qubits)), optimization_level=3)
+
+            #featureMap = pm.run(featureMap)
+            #ansatz = pm.run(ansatz)
 
             def callback(_, eval):
                 print(eval)
 
-            vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=SPSA(maxiter=OPTIMIZER_MAX_ITER, callback=callback), estimator=estimator, callback=callback, pass_manager=pm)
+            vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=COBYLA(maxiter=OPTIMIZER_MAX_ITER), estimator=estimator, callback=callback, pass_manager=pm)
             vqr.fit(sample_train, label_train)
             pred = vqr.predict(sample_test)
 
@@ -105,7 +124,7 @@ def plot(label_test, pred):
 if __name__ == "__main__":
     start = time.time()
     
-    NUM_SAMPLES = 25
+    NUM_SAMPLES = 100
     NUM_QUBITS = 5
     REPS_FEATURE_MAP = 4
     REPS_ANSATZ = 2

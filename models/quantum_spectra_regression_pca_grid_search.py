@@ -1,17 +1,25 @@
 import numpy as np
+import torch
+import torch.nn as nn
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
-from qiskit_machine_learning.optimizers import COBYLA
-from qiskit.circuit.library import RealAmplitudes, ZFeatureMap, PauliFeatureMap
-from qiskit_machine_learning.algorithms.regressors import VQR
+from qiskit.circuit import QuantumCircuit, Parameter
+from qiskit_machine_learning.neural_networks import NeuralNetwork
+from qiskit_machine_learning.connectors import TorchConnector
+from qiskit_machine_learning.optimizers import COBYLA, L_BFGS_B
+from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap, ZFeatureMap 
+from qiskit_machine_learning.algorithms.classifiers import NeuralNetworkClassifier, VQC
+from qiskit_machine_learning.algorithms.regressors import NeuralNetworkRegressor, VQR
+from qiskit_machine_learning.neural_networks import SamplerQNN, EstimatorQNN
+from qiskit_machine_learning.circuit.library import QNNCircuit
 from qiskit.primitives import StatevectorEstimator as Estimator
 from qiskit_machine_learning.utils import algorithm_globals
 import h5py
+import os
+import csv
 import time
-from qiskit_ibm_runtime import QiskitRuntimeService, EstimatorV2 as RealEstimator
-from qiskit.quantum_info import SparsePauliOp
 
 import matplotlib.pyplot as plt
 
@@ -19,7 +27,7 @@ RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 algorithm_globals.random_seed = RANDOM_STATE
 
-OPTIMIZER_MAX_ITER = 70
+OPTIMIZER_MAX_ITER = 200
 FILE_PATH = "../stats/quantum_spec_regr_gridsearch.csv"
 
 #Load the dataset
@@ -28,7 +36,6 @@ def load_data(num_samples):
         samples = np.array(f["spectra"][:num_samples]).squeeze(axis = -1)
         labels = np.array(f["redshifts"][:num_samples])
     return samples, labels
-
 
 #Prepare the data: use PCA to reduce the dimension to number of qubits, scale the data to range (-1, 1) and perform train test split
 def prepare_data(samples, labels, n_qubits):
@@ -51,18 +58,12 @@ def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
 
     sample_train, sample_test, label_train, label_test, scaler = prepare_data(samples, labels, n_qubits)
 
-    #Estimator for local simulation:
     estimator = Estimator(seed=RANDOM_STATE)
 
-    featureMap = PauliFeatureMap(n_qubits, reps=reps_feat_map, paulis=['Z'])
+    featureMap = ZFeatureMap(n_qubits, reps=reps_feat_map)
     ansatz = RealAmplitudes(n_qubits, reps=reps_ansatz)
 
-    def callback(_, eval):
-        print(eval)
-
-    observable = SparsePauliOp.from_list([("Z" * n_qubits, 1.0)])
-
-    vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=COBYLA(maxiter=OPTIMIZER_MAX_ITER), estimator=estimator, callback=callback, observable=observable)
+    vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=COBYLA(maxiter=OPTIMIZER_MAX_ITER), estimator=estimator)
     vqr.fit(sample_train, label_train)
     pred = vqr.predict(sample_test)
 
@@ -70,9 +71,23 @@ def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
     pred = scaler.inverse_transform(pred.reshape(-1,1)).flatten()
     label_test = scaler.inverse_transform(label_test.reshape(-1,1)).flatten()
 
-    plot(label_test, pred)
+    r2 = r2_score(label_test, pred)
+    end = time.time()
+    print(r2)
+
+    with open(FILE_PATH, mode="a", newline="") as f:
+        w = csv.writer(f, delimiter=";")
+        w.writerow([n_qubits, reps_feat_map, reps_ansatz, end - start, r2])
 
 
+
+def run_grid_test(n_qubits, reps_feat_map, reps_ansatz):
+    NUM_SAMPLES = 100
+    samples, labels = load_data(NUM_SAMPLES)
+    for q in n_qubits:
+        for rf in reps_feat_map:
+            for ra in reps_ansatz:
+                train_and_evaluate(samples, labels, q, rf, ra)
 
 def plot(label_test, pred):
     r2 = r2_score(label_test, pred)
@@ -87,17 +102,20 @@ def plot(label_test, pred):
 #Best config: NUMSAMPLES = 100, NUM_QUBITS = 5, MAXITER = 50
 # r2= 0.4102 NUM_SAMPLES = 200, NUM_QUBITS = 5, OPTIMIZER_MAX_ITER = 100, ZFeatureMap reps=4, RealAmplitudes reps 2
 if __name__ == "__main__":
+    if not os.path.exists(FILE_PATH):
+        with open(FILE_PATH, mode="w", newline="") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(["Num qubits", "Reps featuremap", "Reps ansatz", "time", "r2"])
+        print("File created")
+    else:
+        print("File exists")
+
     start = time.time()
     
-    NUM_SAMPLES = 200
-    NUM_QUBITS = 5
-    REPS_FEATURE_MAP = 4
-    REPS_ANSATZ = 2
-    samples, labels = load_data(NUM_SAMPLES)
-    train_and_evaluate(samples, labels, NUM_QUBITS, REPS_FEATURE_MAP, REPS_ANSATZ)
+    run_grid_test(range(2,3), range(1,3), range(1,3))
 
     end = time.time()
-    print(f"Finished in {end - start} seconds")
+    print(f"Finished grid test in {end - start} seconds")
 
     
 
