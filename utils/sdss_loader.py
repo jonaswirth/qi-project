@@ -6,17 +6,6 @@ import astropy.units as u
 from skimage.transform import resize
 
 def fetch_all_bands(ra, dec, radius=5 * u.arcsec, image_size=512):
-    """
-    Fetch all image bands (u, g, r, i, z) for a given RA and Dec.
-    Args:
-        ra (float): Right Ascension of the galaxy.
-        dec (float): Declination of the galaxy.
-        radius (astropy.units.Quantity): Radius for the image cutout.
-        image_size (int): Size to resize images (image_size x image_size).
-
-    Returns:
-        dict: Dictionary with keys as bands ('u', 'g', 'r', 'i', 'z') and resized image data as values.
-    """
     bands = ["u", "g", "r", "i", "z"]
     images = {}
     coord = SkyCoord(ra=ra * u.deg, dec=dec * u.deg)
@@ -41,11 +30,6 @@ def fetch_all_bands(ra, dec, radius=5 * u.arcsec, image_size=512):
     return images
 
 def display_visible_bands(images):
-    """
-    Display all individual bands (u, g, r, i, z) from the given dictionary.
-    Args:
-        images (dict): Dictionary of images with bands as keys ('u', 'g', 'r', 'i', 'z').
-    """
     bands = ["u", "g", "r", "i", "z"]
     num_bands = len(bands)
 

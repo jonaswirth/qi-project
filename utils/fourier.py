@@ -13,7 +13,7 @@ spectrum_fft = np.fft.fft(spectrum)
 frequencies = np.fft.fftfreq(len(spectrum), t[1] - t[0])
 
 # Choose how many Fourier coefficients to keep (e.g., 10 most significant)
-num_coeffs_to_keep = 50
+num_coeffs_to_keep = 200
 
 # Create a copy of the spectrum_fft and zero out coefficients that are not in the top `num_coeffs_to_keep`
 spectrum_fft_truncated = np.copy(spectrum_fft)

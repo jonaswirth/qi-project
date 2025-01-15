@@ -15,12 +15,12 @@ import time
 import matplotlib.pyplot as plt
 
 RANDOM_SEED = 42
-ROOT = r"C:\Git\qi-project"
+ROOT = "C:/Git/qi-project"
 
 torch.manual_seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 
-DATA_DIR = r"C:\Git\qi-project\datasets\astroclip_reduced_3.h5"
+DATA_DIR = "../datasets/astroclip_reduced_3.h5"
 
 # Check if GPU is available
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
