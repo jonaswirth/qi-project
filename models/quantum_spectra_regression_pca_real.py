@@ -9,7 +9,7 @@ from qiskit_machine_learning.algorithms.regressors import VQR
 from qiskit_machine_learning.utils import algorithm_globals
 import h5py
 import time
-from qiskit_ibm_runtime import QiskitRuntimeService, EstimatorV2 as Estimator, Session
+from qiskit_ibm_runtime import Estimator, QiskitRuntimeService, Session
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 from qiskit_ibm_runtime.fake_provider import FakeBrisbane
 #from qiskit_aer import AerSimulator
@@ -22,7 +22,7 @@ RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 algorithm_globals.random_seed = RANDOM_STATE
 
-OPTIMIZER_MAX_ITER = 50
+OPTIMIZER_MAX_ITER = 10
 FILE_PATH = "../stats/quantum_spec_regr_gridsearch.csv"
 
 #Load the dataset
@@ -46,16 +46,6 @@ def prepare_data(samples, labels, n_qubits):
     sample_train, sample_test, label_train, label_test = train_test_split(samples, labels, test_size=0.2, random_state=RANDOM_STATE)
     return sample_train, sample_test, label_train, label_test, scaler
 
-def batch_predict(vqr, data, batch_size=10):
-    """
-    Perform predictions in batches to avoid exceeding the execution limits.
-    """
-    results = []
-    for i in range(0, len(data), batch_size):
-        batch = data[i:i + batch_size]
-        results.extend(vqr.predict(batch))
-    return np.array(results)
-
 
 #Train and evaluate a VQR with given configuration
 def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
@@ -66,14 +56,17 @@ def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
 
     with open("../credentials/token.txt", "r") as file:
         token = file.readlines()[0]
+        print(token)
+
+        #QiskitRuntimeService.save_account(channel="ibm_quantum", token=token)
         
-        service = QiskitRuntimeService(channel="ibm_cloud", token=token)
-        backend = service.least_busy(operational=True, simulator=True, min_num_qubits=n_qubits)
+        service = QiskitRuntimeService(channel="ibm_quantum", token=token)
+        backend = service.least_busy(operational=True, simulator=False, min_num_qubits=n_qubits)
         #backend = FakeBrisbane()
 
         print(backend)
 
-        with Session(backend=backend, max_time=60) as session:
+        with Session(backend=backend, max_time=5*60) as session:
             estimator = Estimator(session)
 
             logical_to_physical = list(range(n_qubits))
@@ -81,8 +74,6 @@ def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
 
             featureMap = PauliFeatureMap(n_qubits, reps=reps_feat_map, paulis=['Z'])
             ansatz = RealAmplitudes(n_qubits, reps=reps_ansatz)
-
-            print(featureMap.num_qubits)
 
             featureMap = transpile(featureMap, backend, initial_layout=logical_to_physical, optimization_level=3)
             ansatz = transpile(ansatz, backend, initial_layout=logical_to_physical, optimization_level=3)
@@ -101,6 +92,8 @@ def train_and_evaluate(samples, labels, n_qubits, reps_feat_map, reps_ansatz):
 
             vqr = VQR(feature_map=featureMap, ansatz=ansatz, optimizer=COBYLA(maxiter=OPTIMIZER_MAX_ITER), estimator=estimator, callback=callback, pass_manager=pm)
             vqr.fit(sample_train, label_train)
+            #backend.run(vqr.fit(sample_train, label_train))
+            #pred = backend.run(vqr.predict(sample_test))
             pred = vqr.predict(sample_test)
 
     # Revert scaling
@@ -124,9 +117,9 @@ def plot(label_test, pred):
 if __name__ == "__main__":
     start = time.time()
     
-    NUM_SAMPLES = 100
+    NUM_SAMPLES = 15
     NUM_QUBITS = 5
-    REPS_FEATURE_MAP = 4
+    REPS_FEATURE_MAP = 2
     REPS_ANSATZ = 2
     samples, labels = load_data(NUM_SAMPLES)
     train_and_evaluate(samples, labels, NUM_QUBITS, REPS_FEATURE_MAP, REPS_ANSATZ)
